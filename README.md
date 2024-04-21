@@ -8,3 +8,5 @@ This script automatically merges all audio tracks into one (main + microphone, b
 To use this, you need to have handbrakecli, ffmpeg, ffprobe all defined in your PATH; then configure the token and domain in the script itself; put the script somewhere handy, maybe define it in PATH too so you can quickly access it through the WIN+R keybind; use it, profit.
 
 If you have an NVIDIA gpu you don't need to change the preset.json file, but if you're rocking an AMD gpu, you'll need to open it in handbrake and change the encoder to whatever AMD has.
+
+Zipline in question: https://github.com/diced/zipline
