@@ -1,6 +1,11 @@
 import httpx
 import pyperclip
 
+from tkinter import Tk
+from tkinter.filedialog import askopenfilename
+
+Tk().withdraw()
+
 import json
 import mimetypes
 import os
@@ -10,10 +15,14 @@ import subprocess
 import shlex
 import traceback
 import time
+import ctypes
 
 TOKEN = ""
 CHUNK_SIZE = 20_000_000
 DOMAIN = "https://cool.com"
+
+def execute(cmd):
+    return subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE).communicate()
 
 def upload(file_path):
     chunks = []
@@ -63,21 +72,8 @@ def upload(file_path):
             raise Exception(f"Failed to upload chunk {i}")
         
         last_chunk_pos += chunk_length
-        
-def main():
-    file_path = pyperclip.paste()
-    if len(file_path) >= 0 and file_path[0] == "\"" and file_path[-1] == "\"":
-        file_path = file_path[1:-1]
-    
-    print(f"[{file_path}]")
-    print("Do we continue? [Y/N]")
-    if not input().lower().startswith("y"):
-        exit()
 
-    pipe = subprocess.PIPE
-
-    print("Opening LosslessCut...")
-
+def lossless_cut_process(file_path):
     ignore = {}
 
     dirname = os.path.dirname(file_path)
@@ -89,11 +85,11 @@ def main():
         if input_file_ext == current_file_ext and input_file_base in current_file_base and input_file_base != current_file_base:
             ignore[file] = True
             
-    subprocess.Popen(shlex.split(f"LosslessCut \"{file_path}\""), stdout=pipe).communicate()
+    execute(f"LosslessCut \"{file_path}\"")
     time.sleep(1)
     
     done = False
-    cut_path = ""
+    output_path = ""
     while not done:
         files = os.listdir(dirname)
 
@@ -102,35 +98,81 @@ def main():
             current_file_base, current_file_ext = os.path.splitext(os.path.basename(file))
             if input_file_ext == current_file_ext and input_file_base in current_file_base and input_file_base != current_file_base and not ignore.get(file):
                 done = True
-                cut_path = os.path.join(dirname, file)
+                output_path = os.path.join(dirname, file)
                 break
         
         time.sleep(1)
-
-    i_base, _ = os.path.splitext(cut_path)
-    intermediate_path = i_base + "_merged.mp4"
-
-    print(f"Merging audio tracks... [{cut_path} --> {intermediate_path}]")
-    num_of_inputs, _ = subprocess.Popen(shlex.split(f"ffprobe -loglevel error -select_streams a -show_entries stream=index -of csv=p=0 \"{cut_path}\""), stdout=pipe).communicate()
-    num_of_inputs = num_of_inputs.count(b"\n")
-    subprocess.Popen(shlex.split(f"ffmpeg -i \"{cut_path}\" -c:v copy -c:a aac -b:a 160k -ac 2 -filter_complex \"amerge=inputs={num_of_inputs}\" \"{intermediate_path}\""), stdout=pipe).communicate()
     
-    base, _ = os.path.splitext(intermediate_path)
-    end_path = base + "_braked.mp4"
+    return output_path
 
-    print(f"Converting... [{intermediate_path} --> {end_path}]")
-    subprocess.Popen(shlex.split(f"HandBrakeCLI --preset-import-file \"{os.path.abspath("preset.json")}\" -Z \"Source 1080P\" -i \"{intermediate_path}\" -o \"{end_path}\""), stdout=pipe).communicate()
+def merge_tracks(file_path):
+    base, _ = os.path.splitext(file_path)
+    output_path = base + "_merged.mp4"
+    
+    num_of_inputs, _ = execute(f"ffprobe -loglevel error -select_streams a -show_entries stream=index -of csv=p=0 \"{file_path}\"")
+    num_of_inputs = num_of_inputs.count(b"\n")
+    execute(f"ffmpeg -i \"{file_path}\" -c:v copy -c:a aac -b:a 160k -ac 2 -filter_complex \"amerge=inputs={num_of_inputs}\" \"{output_path}\"")
 
-    print(f"Uploading... [{end_path}]")
-    upload(end_path)
+    return output_path
 
-    os.remove(end_path)
-    os.remove(intermediate_path)
+def compress(file_path):
+    base, _ = os.path.splitext(file_path)
+    output_path = base + "_braked.mp4"
+    
+    execute(f"HandBrakeCLI --preset-import-file \"{os.path.abspath("preset.json")}\" -Z \"Source 1080P\" -i \"{file_path}\" -o \"{output_path}\"")
+    
+    return output_path
+
+def main():
+    window = ctypes.windll.kernel32.GetConsoleWindow()
+
+    file_path = pyperclip.paste()
+    if len(file_path) >= 0 and file_path[0] == "\"" and file_path[-1] == "\"":
+        file_path = file_path[1:-1]
+    
+    if not os.path.exists(file_path):
+        file_path = askopenfilename()
+    
+    if len(file_path) <= 0:
+        exit()
+    
+    ctypes.windll.user32.SetForegroundWindow(window)
+
+    choice = input(f"[{file_path}]\nDo we continue? [Y/N/(R)eset]: ").lower()
+    if choice.startswith("n"):
+        exit()
+    elif choice.startswith("r"):
+        main()
+        return
+
+    print("Opening LosslessCut...")
+    cut_path = lossless_cut_process(file_path)
+
+    print(f"Merging audio tracks...")
+    merge_path = merge_tracks(cut_path)
+    
+    print(f"Converting...")
+    end_path = compress(merge_path)
+
+    if TOKEN != "none":
+        print(f"Uploading... [{end_path}]")
+        upload(end_path)
+    
+    ctypes.windll.user32.FlashWindow(window, True)
+
     os.remove(cut_path)
+    os.remove(merge_path)
 
-try:
-    main()
-except Exception:
-    print(traceback.format_exc())
+    if TOKEN != "none" and input("Do you wish to keep the end file? [Y/N]: ").lower().startswith("n"):
+        os.remove(end_path)
+    else:
+        execute(f"explorer /select {end_path}")
+    
+    exit()
 
-input()
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        print(traceback.format_exc())
+    input()
