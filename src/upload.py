@@ -16,13 +16,22 @@ import shlex
 import traceback
 import time
 import ctypes
+import sys
 
 TOKEN = ""
 CHUNK_SIZE = 20_000_000
-DOMAIN = "https://cool.com"
+DOMAIN = ""
+VERBOSE = False
+DEBUG = False
 
 def execute(cmd):
-    return subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE).communicate()
+    output = subprocess.run(shlex.split(cmd), capture_output = True, text = True)
+
+    if VERBOSE:
+        print(output.stdout)
+        print(output.stderr)
+    
+    return output.stdout, output.stderr
 
 def upload(file_path):
     chunks = []
@@ -110,7 +119,7 @@ def merge_tracks(file_path):
     output_path = base + "_merged.mp4"
     
     num_of_inputs, _ = execute(f"ffprobe -loglevel error -select_streams a -show_entries stream=index -of csv=p=0 \"{file_path}\"")
-    num_of_inputs = num_of_inputs.count(b"\n")
+    num_of_inputs = num_of_inputs.count("\n")
     execute(f"ffmpeg -i \"{file_path}\" -c:v copy -c:a aac -b:a 160k -ac 2 -filter_complex \"amerge=inputs={num_of_inputs}\" \"{output_path}\"")
 
     return output_path
@@ -133,12 +142,15 @@ def main():
     if not os.path.exists(file_path):
         file_path = askopenfilename()
     
+    ctypes.windll.user32.SetForegroundWindow(window)
+    
     if len(file_path) <= 0:
         exit()
     
-    ctypes.windll.user32.SetForegroundWindow(window)
+    # input causes the terminal to un-focus. WTF?
+    print(f"[{file_path}]\nDo we continue? [Y/N/(R)eset]: ")
+    choice = sys.stdin.readline().lower()
 
-    choice = input(f"[{file_path}]\nDo we continue? [Y/N/(R)eset]: ").lower()
     if choice.startswith("n"):
         exit()
     elif choice.startswith("r"):
@@ -160,15 +172,14 @@ def main():
     
     ctypes.windll.user32.FlashWindow(window, True)
 
-    os.remove(cut_path)
-    os.remove(merge_path)
+    if not DEBUG:
+        os.remove(cut_path)
+        os.remove(merge_path)
 
-    if TOKEN != "none" and input("Do you wish to keep the end file? [Y/N]: ").lower().startswith("n"):
+    if not DEBUG and TOKEN != "none" and input("Do you wish to keep the end file? [Y/N]: ").lower().startswith("n"):
         os.remove(end_path)
     else:
-        execute(f"explorer /select {end_path}")
-    
-    exit()
+        execute(f"explorer /select, \"{end_path}\"")
 
 if __name__ == "__main__":
     try:
