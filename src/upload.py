@@ -49,17 +49,17 @@ def upload(file_path):
     identifier = ''.join(random.choice(string.ascii_lowercase) for i in range(6))
 
     last_chunk_pos = 0
+    
     for i, chunk in enumerate(chunks):
         chunk_length = len(chunk)
 
         print(f"Uploading chunk {i + 1}/{chunks_length}")
 
-        response = httpx.post(DOMAIN + "/api/upload", 
+        response = httpx.post(DOMAIN + "/api/upload",
             timeout = 9999,
             files = {"file": ("blob", chunk)}, 
             headers = {
                 "Authorization": TOKEN,
-                "Accept-Encoding": "gzip, deflate, br, zstd",
                 "Content-Range": f"bytes {last_chunk_pos}-{last_chunk_pos + chunk_length}/{file_size}",
                 "X-Zipline-Partial-FileName": file_name,
                 "X-Zipline-Partial-MimeType": file_type,
@@ -71,7 +71,7 @@ def upload(file_path):
 
         if response and response.status_code == 200 and len(response.text) > 0:
             decoded = json.loads(response.text)
-
+            
             if decoded.get("success"):
                 print(f"Uploaded chunk {i + 1}/{chunks_length}")
             
@@ -136,7 +136,7 @@ def main():
     window = ctypes.windll.kernel32.GetConsoleWindow()
 
     file_path = pyperclip.paste()
-    if len(file_path) >= 0 and file_path[0] == "\"" and file_path[-1] == "\"":
+    if len(file_path) > 0 and file_path[0] == "\"" and file_path[-1] == "\"":
         file_path = file_path[1:-1]
     
     if not os.path.exists(file_path):
